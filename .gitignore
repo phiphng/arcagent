@@ -1,2 +1,16 @@
 node_modules/
 .env
+
+# Foundry / Solidity
+contracts/out/
+contracts/cache/
+contracts/lib/
+
+# Frontend
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Test
+test/node_modules/
+test/coverage/
