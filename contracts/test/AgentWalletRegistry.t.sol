@@ -17,9 +17,10 @@ contract AgentWalletRegistryTest is Test {
     string constant AGENT_B = "xmtp:bob";
     string constant AGENT_C = "discord:charlie";
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AgentRegistered(string indexed agentId, address indexed wallet);
     event AgentUpdated(string indexed agentId, address indexed oldWallet, address indexed newWallet);
-    event AgentDeregistered(string indexed agentId, address indexed wallet);
+    event AgentDeactivated(string indexed agentId, address indexed previousWallet);
 
     function setUp() public {
         vm.prank(owner);
@@ -32,6 +33,26 @@ contract AgentWalletRegistryTest is Test {
         assertEq(registry.owner(), owner, "owner should be set correctly");
     }
 
+    function test_RevertWhen_ConstructorZeroOwner() public {
+        vm.expectRevert("Owner cannot be zero address");
+        new AgentWalletRegistry(address(0));
+    }
+
+    function test_OwnershipTransfer() public {
+        address newOwner = makeAddr("newOwner");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit OwnershipTransferred(owner, newOwner);
+        registry.transferOwnership(newOwner);
+        assertEq(registry.owner(), newOwner);
+    }
+
+    function test_RevertWhen_TransferOwnershipNotOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert("Not owner");
+        registry.transferOwnership(makeAddr("newOwner"));
+    }
+
     // ── Register ──────────────────────────────────────────────────────
 
     function test_RegisterAgent() public {
@@ -40,13 +61,13 @@ contract AgentWalletRegistryTest is Test {
         emit AgentRegistered(AGENT_A, wallet1);
         registry.registerAgent(AGENT_A, wallet1);
 
-        (address w, bool r) = registry.getAgent(AGENT_A);
+        (address w, bool a) = registry.getAgent(AGENT_A);
         assertEq(w, wallet1, "wallet should match");
-        assertTrue(r, "should be registered");
+        assertTrue(a, "should be active");
 
-        (string memory aid, bool r2) = registry.getAgentByWallet(wallet1);
+        (string memory aid, bool a2) = registry.getAgentByWallet(wallet1);
         assertEq(aid, AGENT_A, "reverse lookup should match");
-        assertTrue(r2, "reverse lookup should be registered");
+        assertTrue(a2, "reverse lookup should be active");
     }
 
     function test_RevertWhen_DuplicateAgentId() public {
@@ -79,21 +100,21 @@ contract AgentWalletRegistryTest is Test {
         registry.registerAgent("", wallet1);
     }
 
-    function test_RevertWhen_NotOwner() public {
+    function test_RevertWhen_RegisterNotOwner() public {
         vm.prank(stranger);
-        vm.expectRevert();
+        vm.expectRevert("Not owner");
         registry.registerAgent(AGENT_A, wallet1);
     }
 
     // ── Update ────────────────────────────────────────────────────────
 
-    function test_UpdateAgentWallet() public {
+    function test_UpdateAgent() public {
         vm.startPrank(owner);
         registry.registerAgent(AGENT_A, wallet1);
 
         vm.expectEmit(true, true, true, false);
         emit AgentUpdated(AGENT_A, wallet1, wallet2);
-        registry.updateAgentWallet(AGENT_A, wallet2);
+        registry.updateAgent(AGENT_A, wallet2);
 
         (address w,) = registry.getAgent(AGENT_A);
         assertEq(w, wallet2, "wallet should be updated");
@@ -107,7 +128,7 @@ contract AgentWalletRegistryTest is Test {
     function test_RevertWhen_UpdateUnregistered() public {
         vm.prank(owner);
         vm.expectRevert("Agent ID not registered");
-        registry.updateAgentWallet(AGENT_A, wallet2);
+        registry.updateAgent(AGENT_A, wallet2);
     }
 
     function test_RevertWhen_UpdateToUsedWallet() public {
@@ -116,44 +137,56 @@ contract AgentWalletRegistryTest is Test {
         registry.registerAgent(AGENT_B, wallet2);
 
         vm.expectRevert("New wallet already linked");
-        registry.updateAgentWallet(AGENT_A, wallet2);
+        registry.updateAgent(AGENT_A, wallet2);
         vm.stopPrank();
     }
 
-    // ── Deregister ────────────────────────────────────────────────────
+    function test_RevertWhen_UpdateNotOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert("Not owner");
+        registry.updateAgent(AGENT_A, wallet2);
+    }
 
-    function test_DeregisterAgent() public {
+    // ── Deactivate ────────────────────────────────────────────────────
+
+    function test_DeactivateAgent() public {
         vm.startPrank(owner);
         registry.registerAgent(AGENT_A, wallet1);
 
         vm.expectEmit(true, true, false, false);
-        emit AgentDeregistered(AGENT_A, wallet1);
-        registry.deregisterAgent(AGENT_A);
+        emit AgentDeactivated(AGENT_A, wallet1);
+        registry.deactivateAgent(AGENT_A);
 
-        (, bool r) = registry.getAgent(AGENT_A);
-        assertFalse(r, "should no longer be registered");
+        (, bool active) = registry.getAgent(AGENT_A);
+        assertFalse(active, "should no longer be active");
 
         // Wallet mapping should be cleared
-        (string memory aid, bool r2) = registry.getAgentByWallet(wallet1);
+        (string memory aid, bool a2) = registry.getAgentByWallet(wallet1);
         assertEq(aid, "", "wallet mapping should be cleared");
-        assertFalse(r2, "wallet should not be registered");
+        assertFalse(a2, "wallet should not be active");
         vm.stopPrank();
     }
 
-    function test_RevertWhen_DeregisterUnregistered() public {
+    function test_RevertWhen_DeactivateUnregistered() public {
         vm.prank(owner);
         vm.expectRevert("Agent ID not registered");
-        registry.deregisterAgent("tg:nobody");
+        registry.deactivateAgent("tg:nobody");
+    }
+
+    function test_RevertWhen_DeactivateNotOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert("Not owner");
+        registry.deactivateAgent(AGENT_A);
     }
 
     // ── Queries ───────────────────────────────────────────────────────
 
-    function test_IsAgentRegistered() public {
-        assertFalse(registry.isAgentRegistered(AGENT_A));
+    function test_IsAgentActive() public {
+        assertFalse(registry.isAgentActive(AGENT_A));
 
         vm.prank(owner);
         registry.registerAgent(AGENT_A, wallet1);
-        assertTrue(registry.isAgentRegistered(AGENT_A));
+        assertTrue(registry.isAgentActive(AGENT_A));
     }
 
     function test_BatchGetAgents() public {
@@ -168,21 +201,34 @@ contract AgentWalletRegistryTest is Test {
         ids[1] = AGENT_B;
         ids[2] = AGENT_C;
 
-        (address[] memory wallets, bool[] memory registered) = registry.batchGetAgents(ids);
+        (address[] memory wallets, bool[] memory active) = registry.batchGetAgents(ids);
 
         assertEq(wallets.length, 3);
-        assertEq(registered.length, 3);
+        assertEq(active.length, 3);
         assertEq(wallets[0], wallet1);
         assertEq(wallets[1], wallet2);
         assertEq(wallets[2], address(0));
-        assertTrue(registered[0]);
-        assertTrue(registered[1]);
-        assertFalse(registered[2]);
+        assertTrue(active[0]);
+        assertTrue(active[1]);
+        assertFalse(active[2]);
     }
 
     function test_GetAgentByWallet_Unknown() public {
-        (string memory aid, bool registered) = registry.getAgentByWallet(wallet1);
+        (string memory aid, bool active) = registry.getAgentByWallet(wallet1);
         assertEq(aid, "");
-        assertFalse(registered);
+        assertFalse(active);
+    }
+
+    function test_DeactivateThenReactivate() public {
+        vm.startPrank(owner);
+        registry.registerAgent(AGENT_A, wallet1);
+        registry.deactivateAgent(AGENT_A);
+
+        // Can register again after deactivation
+        registry.registerAgent(AGENT_A, wallet2);
+        (address w, bool active) = registry.getAgent(AGENT_A);
+        assertEq(w, wallet2);
+        assertTrue(active);
+        vm.stopPrank();
     }
 }
