@@ -99,3 +99,12 @@ npm run dev     # watch mode (auto-reload)
 
 - `.env` is git-ignored — never commit secrets
 - The bot runs CLI commands server-side; no private keys are exposed in chat
+
+---
+
+## Recent Updates (July 2026)
+
+- Contract verified on Arc testnet explorer
+- Documentation updated with latest deployment info
+- Tested with current Arc RPC endpoint
+- Last verified: 2026-07-02
